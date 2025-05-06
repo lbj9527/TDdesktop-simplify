@@ -3,7 +3,7 @@
 chcp 65001 > nul
 
 echo ===== 开始构建程序 =====
-echo 使用CMake和MinGW配置项目（C++17，64位架构）
+echo 使用CMake和MinGW配置项目（C++17，32位架构）
 
 :: 清理之前的构建
 if exist build (
@@ -17,7 +17,7 @@ cd build
 
 :: 使用CMake配置项目
 echo 正在配置项目...
-cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-m32" -DCMAKE_CXX_FLAGS="-m32" ..
 if %ERRORLEVEL% neq 0 (
     echo CMake配置失败！
     cd ..
@@ -48,4 +48,4 @@ if /i "%run_choice%"=="Y" (
     .\build\bin\release\IntegerSwap.exe
 )
 
-pause 
+pause
