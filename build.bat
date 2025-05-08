@@ -1,103 +1,153 @@
 @echo off
-:: 设置代码页为UTF-8
-chcp 65001 > nul
+chcp 65001 >nul
+echo [信息] 正在为Telegram客户端配置构建环境...
 
-echo ===== 开始构建Telegram客户端 =====
-echo 使用CMake和自定义MinGW64配置项目（C++17）
+REM 设置Qt目录
+set QTDIR=D:\install\Qt\6.9.0\mingw_64
+set PATH=%QTDIR%\bin;D:\install\msys64\mingw64\bin;%PATH%
+set QT_VERSION_MAJOR=6
+set VCPKG_BIN=C:\TDLib\td\vcpkg\installed\x64-windows\bin
 
-:: 设置MinGW路径 - 改为64位版本
-set "MINGW_PATH=D:\install\msys64\mingw64"
-echo 使用MinGW路径: %MINGW_PATH%
+REM 配置路径
+set BUILD_DIR=build
+set BIN_DIR=%BUILD_DIR%\bin
+set RELEASE_DIR=%BIN_DIR%\release
 
-:: 检查MinGW路径是否存在
-if not exist "%MINGW_PATH%\bin\gcc.exe" (
-    echo 错误：找不到MinGW编译器! 请确认路径: %MINGW_PATH%
-    echo 预期路径: %MINGW_PATH%\bin\gcc.exe
-    pause
-    exit /b 1
-)
+REM 创建构建目录
+if not exist %BUILD_DIR% mkdir %BUILD_DIR%
 
-:: 设置Qt安装路径 - 保持64位版本
-set "QTDIR=D:\install\Qt\6.9.0\mingw_64"
-echo 使用Qt目录: %QTDIR%
+REM 进入构建目录并运行CMake配置
+cd %BUILD_DIR%
+echo [信息] 正在运行CMake配置...
+cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QTDIR% ..
 
-:: 检查Qt路径是否存在
-if not exist "%QTDIR%\bin\qmake.exe" (
-    echo 错误：在指定的Qt路径中找不到qmake.exe: %QTDIR%
-    echo 请确保Qt安装路径正确。
-    pause
-    exit /b 1
-)
+REM 编译代码
+echo [信息] 正在编译项目...
+cmake --build . --config Release
 
-:: 将MinGW和Qt的bin目录添加到PATH环境变量
-set "PATH=%MINGW_PATH%\bin;%QTDIR%\bin;%PATH%"
-
-:: 检查是否有MSYS2环境变量（可选）
-if defined MSYS2_PATH (
-    echo 检测到MSYS2环境: %MSYS2_PATH%
-    set "PATH=%MSYS2_PATH%\usr\bin;%PATH%"
-)
-
-:: 清理之前的构建
-if exist build (
-    echo 清理之前的构建...
-    rmdir /s /q build
-)
-
-:: 创建构建目录
-mkdir build
-cd build
-
-:: 设置环境变量，避免路径问题
-set "Qt6_DIR=%QTDIR%\lib\cmake\Qt6"
-set "Qt6CoreTools_DIR=%QTDIR%\lib\cmake\Qt6CoreTools"
-set "Qt6WidgetsTools_DIR=%QTDIR%\lib\cmake\Qt6WidgetsTools"
-set "CMAKE_PREFIX_PATH=%QTDIR%"
-
-:: 设置编译标志，处理空格和特殊字符
-set "CXX_FLAGS=-Wno-deprecated-declarations -Wno-class-memaccess -fpermissive -Wno-missing-template-arg-list-after-template-kw"
-
-:: 使用CMake配置项目
-echo 正在配置项目...
-cmake -G "MinGW Makefiles" ^
-      -DCMAKE_PREFIX_PATH="%QTDIR%" ^
-      -DCMAKE_BUILD_TYPE=Release ^
-      -DCMAKE_C_COMPILER="%MINGW_PATH%\bin\gcc.exe" ^
-      -DCMAKE_CXX_COMPILER="%MINGW_PATH%\bin\g++.exe" ^
-      -DCMAKE_CXX_FLAGS="%CXX_FLAGS%" ^
-      -DCMAKE_MAKE_PROGRAM="%MINGW_PATH%\bin\mingw32-make.exe" ^
-      -DCMAKE_VERBOSE_MAKEFILE=ON ^
-      ..
-
+REM 检查编译是否成功
 if %ERRORLEVEL% neq 0 (
-    echo CMake配置失败！
+    echo [错误] 编译失败！
     cd ..
-    pause
-    exit /b 1
+    exit /b %ERRORLEVEL%
 )
 
-:: 编译项目
-echo 正在编译项目...
-cmake --build . --config Release -- -j4
+echo [信息] 编译成功！
 
-if %ERRORLEVEL% neq 0 (
-    echo 编译失败！
-    cd ..
-    pause
-    exit /b 1
+REM 确保目标目录存在
+if not exist %RELEASE_DIR% (
+    echo [信息] 创建发布目录...
+    mkdir %RELEASE_DIR%
 )
 
-echo 编译成功！
-echo 可执行文件位于: "%CD%\bin\release\TelegramClient.exe"
+echo [信息] 正在复制所需的Qt库文件...
 
-:: 返回上级目录
+REM 复制Qt核心库
+echo [信息] 复制Qt核心库...
+copy /Y "%QTDIR%\bin\Qt6Core.dll" "%RELEASE_DIR%" || echo [警告] 无法复制Qt6Core.dll
+copy /Y "%QTDIR%\bin\Qt6Gui.dll" "%RELEASE_DIR%" || echo [警告] 无法复制Qt6Gui.dll
+copy /Y "%QTDIR%\bin\Qt6Widgets.dll" "%RELEASE_DIR%" || echo [警告] 无法复制Qt6Widgets.dll
+copy /Y "%QTDIR%\bin\Qt6Network.dll" "%RELEASE_DIR%" || echo [警告] 无法复制Qt6Network.dll
+
+REM 复制Qt平台插件
+echo [信息] 复制Qt平台插件...
+if not exist "%RELEASE_DIR%\platforms" mkdir "%RELEASE_DIR%\platforms"
+copy /Y "%QTDIR%\plugins\platforms\qwindows.dll" "%RELEASE_DIR%\platforms\" || echo [警告] 无法复制qwindows.dll
+
+REM 复制Qt样式插件
+echo [信息] 复制Qt样式插件...
+if not exist "%RELEASE_DIR%\styles" mkdir "%RELEASE_DIR%\styles"
+copy /Y "%QTDIR%\plugins\styles\qwindowsvistastyle.dll" "%RELEASE_DIR%\styles\" || echo [警告] 无法复制qwindowsvistastyle.dll
+
+REM 复制Qt图像格式插件
+echo [信息] 复制Qt图像格式插件...
+if not exist "%RELEASE_DIR%\imageformats" mkdir "%RELEASE_DIR%\imageformats"
+copy /Y "%QTDIR%\plugins\imageformats\qjpeg.dll" "%RELEASE_DIR%\imageformats\" || echo [警告] 无法复制qjpeg.dll
+copy /Y "%QTDIR%\plugins\imageformats\qgif.dll" "%RELEASE_DIR%\imageformats\" || echo [警告] 无法复制qgif.dll
+copy /Y "%QTDIR%\plugins\imageformats\qico.dll" "%RELEASE_DIR%\imageformats\" || echo [警告] 无法复制qico.dll
+copy /Y "%QTDIR%\plugins\imageformats\qsvg.dll" "%RELEASE_DIR%\imageformats\" || echo [警告] 无法复制qsvg.dll
+
+REM 复制TLS后端插件
+echo [信息] 复制TLS后端插件...
+if not exist "%RELEASE_DIR%\tls" mkdir "%RELEASE_DIR%\tls"
+echo [详细] 搜索TLS插件于 %QTDIR%\plugins\tls\...
+dir /b "%QTDIR%\plugins\tls\*.dll" > "%TEMP%\tls_plugins.txt" 2>nul
+for /F "usebackq tokens=*" %%A in ("%TEMP%\tls_plugins.txt") do (
+  echo [详细] 复制TLS插件: %%A
+  copy /Y "%QTDIR%\plugins\tls\%%A" "%RELEASE_DIR%\tls\" || echo [警告] 无法复制%%A
+)
+
+REM 复制网络TLS插件
+echo [信息] 复制网络TLS插件...
+if not exist "%RELEASE_DIR%\networkinformation" mkdir "%RELEASE_DIR%\networkinformation"
+copy /Y "%QTDIR%\plugins\networkinformation\qnetworklistmanager.dll" "%RELEASE_DIR%\networkinformation\" || echo [警告] 无法复制qnetworklistmanager.dll
+
+REM 复制MinGW运行时库
+echo [信息] 复制MinGW运行时库...
+set MINGW_PATH=D:\install\msys64\mingw64
+copy /Y "%MINGW_PATH%\bin\libgcc_s_seh-1.dll" "%RELEASE_DIR%" || echo [警告] 无法复制libgcc_s_seh-1.dll
+copy /Y "%MINGW_PATH%\bin\libstdc++-6.dll" "%RELEASE_DIR%" || echo [警告] 无法复制libstdc++-6.dll
+copy /Y "%MINGW_PATH%\bin\libwinpthread-1.dll" "%RELEASE_DIR%" || echo [警告] 无法复制libwinpthread-1.dll
+
+REM 复制OpenSSL库
+echo [信息] 复制OpenSSL库...
+set FOUND_SSL=0
+
+REM 检查VCPKG目录中的OpenSSL库
+echo [信息] 从VCPKG目录搜索OpenSSL库...
+if exist "%VCPKG_BIN%" (
+    echo [详细] 复制VCPKG中的OpenSSL库...
+    copy /Y "%VCPKG_BIN%\libssl*.dll" "%RELEASE_DIR%" || echo [警告] 无法复制libssl*.dll
+    copy /Y "%VCPKG_BIN%\libcrypto*.dll" "%RELEASE_DIR%" || echo [警告] 无法复制libcrypto*.dll
+    copy /Y "%VCPKG_BIN%\ssl*.dll" "%RELEASE_DIR%" || echo [警告] 无法复制ssl*.dll
+    copy /Y "%VCPKG_BIN%\crypto*.dll" "%RELEASE_DIR%" || echo [警告] 无法复制crypto*.dll
+    
+    echo [详细] 检查和复制VCPKG依赖库...
+    dir /b "%VCPKG_BIN%\*.dll" > "%TEMP%\vcpkg_libs.txt" 2>nul
+    for /F "usebackq tokens=*" %%A in ("%TEMP%\vcpkg_libs.txt") do (
+        echo 复制库: %%A
+        copy /Y "%VCPKG_BIN%\%%A" "%RELEASE_DIR%" || echo [警告] 无法复制%%A
+    )
+    set FOUND_SSL=1
+) else (
+    echo [警告] VCPKG目录不存在: %VCPKG_BIN%
+)
+
+REM 检查MinGW目录中的OpenSSL库
+if %FOUND_SSL% equ 0 (
+  echo [详细] 从MinGW目录搜索OpenSSL库...
+  dir /b "%MINGW_PATH%\bin\libssl*.dll" > "%TEMP%\ssl_libs.txt" 2>nul
+  dir /b "%MINGW_PATH%\bin\libcrypto*.dll" >> "%TEMP%\ssl_libs.txt" 2>nul
+  for /F "usebackq tokens=*" %%A in ("%TEMP%\ssl_libs.txt") do (
+    echo [详细] 复制OpenSSL库: %%A
+    copy /Y "%MINGW_PATH%\bin\%%A" "%RELEASE_DIR%" || echo [警告] 无法复制%%A
+    set FOUND_SSL=1
+  )
+)
+
+REM 检查Qt目录中的OpenSSL库
+if %FOUND_SSL% equ 0 (
+  echo [详细] 从Qt目录搜索OpenSSL库...
+  dir /b "%QTDIR%\bin\libssl*.dll" > "%TEMP%\ssl_libs.txt" 2>nul
+  dir /b "%QTDIR%\bin\libcrypto*.dll" >> "%TEMP%\ssl_libs.txt" 2>nul
+  for /F "usebackq tokens=*" %%A in ("%TEMP%\ssl_libs.txt") do (
+    echo [详细] 复制OpenSSL库: %%A
+    copy /Y "%QTDIR%\bin\%%A" "%RELEASE_DIR%" || echo [警告] 无法复制%%A
+    set FOUND_SSL=1
+  )
+)
+
+if %FOUND_SSL% equ 0 (
+    echo [警告] 未找到OpenSSL库，TLS功能可能不可用！
+    echo [提示] 请考虑安装OpenSSL并重新运行deploy.bat脚本
+)
+
+REM 创建qt.conf文件
+echo [信息] 创建qt.conf文件...
+echo [Paths] > "%RELEASE_DIR%\qt.conf"
+echo Plugins = ./ >> "%RELEASE_DIR%\qt.conf"
+
+echo [信息] 构建完成！可执行文件位于 %RELEASE_DIR%\TelegramClient.exe
 cd ..
 
-echo ===== 是否运行程序？ =====
-set /p run_choice=按Y运行程序，按其他键退出:
-if /i "%run_choice%"=="Y" (
-    echo 正在运行程序...
-    .\build\bin\release\TelegramClient.exe
-)
-
-pause
+exit /b 0

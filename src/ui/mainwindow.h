@@ -14,8 +14,10 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QAction>
+#include <QStatusBar>
 
 #include "core/telegram_client.h"
+#include "core/config_manager.h"
 
 class MainWindow : public QMainWindow
 {
@@ -42,6 +44,13 @@ private slots:
     void onProxySettingsAction();
     void onProxyCheckBoxToggled(bool checked);
     void onApplyProxyButtonClicked();
+    
+    // 配置管理器相关槽
+    void onConfigLoaded();
+    void onConfigSaved();
+    
+    // 显示配置文件路径
+    void onShowConfigFilePathAction();
 
 private:
     void setupUi();
@@ -50,8 +59,11 @@ private:
     void createMainPage();
     void createProxySettingsDialog();
     void createMenuBar();
-    void loadProxySettings();
-    void saveProxySettings();
+    void createStatusBar();
+    
+    // 初始化界面值
+    void initializeWithConfig();
+    void updateUiFromConfig();
 
     // UI组件
     QStackedWidget* m_stackedWidget;
@@ -82,7 +94,13 @@ private:
     QLineEdit* m_proxyPasswordEdit;
     QPushButton* m_applyProxyButton;
     
+    // 状态栏
+    QLabel* m_statusLabel;
+    
     // 客户端核心
     TelegramClient* m_client;
     QString m_phoneCodeHash;
+    
+    // 配置管理器
+    ConfigManager* m_configManager;
 }; 

@@ -11,7 +11,7 @@ message(STATUS "找到的UI文件: ${UI_FILES}")
 # 添加可执行文件
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} ${UI_FILES})
 
-# 链接Qt6库
+# 链接Qt6库和OpenSSL库
 message(STATUS "链接Qt6库")
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
@@ -19,9 +19,26 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Network
 )
 
+# 链接OpenSSL库
+if(EXISTS "${VCPKG_DIR}/lib/libssl.lib")
+    message(STATUS "链接VCPKG中的OpenSSL库")
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        "${VCPKG_DIR}/lib/libssl.lib"
+        "${VCPKG_DIR}/lib/libcrypto.lib"
+    )
+else()
+    message(WARNING "未找到VCPKG中的OpenSSL库")
+endif()
+
+# 明确指定C++17标准
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+
 # 设置可执行文件的属性
 set_target_properties(${PROJECT_NAME} PROPERTIES
     OUTPUT_NAME "${PROJECT_NAME}"
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
 )
 
 # 为可执行文件添加编译定义和标志

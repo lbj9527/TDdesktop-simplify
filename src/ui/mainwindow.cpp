@@ -1,16 +1,22 @@
 #include "mainwindow.h"
 #include <QDialog>
 #include <QFormLayout>
-#include <QSettings>
+#include <QDebug>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QFileInfo>
+#include <QDir>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_client(new TelegramClient(this))
     , m_proxyDialog(nullptr)
+    , m_configManager(ConfigManager::instance())
 {
     // 设置窗口标题和大小
     setWindowTitle("Telegram 客户端");
-    resize(400, 300);
+    resize(450, 350);
     
     // 设置UI
     setupUi();
@@ -18,8 +24,12 @@ MainWindow::MainWindow(QWidget *parent)
     // 创建菜单栏
     createMenuBar();
     
-    // 加载代理设置
-    loadProxySettings();
+    // 创建状态栏
+    createStatusBar();
+    
+    // 连接配置管理器信号
+    connect(m_configManager, &ConfigManager::configLoaded, this, &MainWindow::onConfigLoaded);
+    connect(m_configManager, &ConfigManager::configSaved, this, &MainWindow::onConfigSaved);
     
     // 连接信号和槽
     connect(m_loginButton, &QPushButton::clicked, this, &MainWindow::onLoginButtonClicked);
@@ -32,10 +42,70 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_client, &TelegramClient::codeRequested, this, &MainWindow::onCodeRequested);
     connect(m_client, &TelegramClient::authorizationError, this, &MainWindow::onAuthorizationError);
     connect(m_client, &TelegramClient::userInfoReceived, this, &MainWindow::onUserInfoReceived);
+    
+    // 初始化界面值
+    initializeWithConfig();
 }
 
 MainWindow::~MainWindow()
 {
+}
+
+void MainWindow::onConfigLoaded()
+{
+    // 当配置加载完成后，更新UI
+    updateUiFromConfig();
+    
+    // 更新状态栏信息
+    QString path = QDir::toNativeSeparators(m_configManager->configFilePath());
+    m_statusLabel->setText(tr("配置已从 %1 加载").arg(path));
+}
+
+void MainWindow::onConfigSaved()
+{
+    // 当配置保存后，更新状态栏
+    QString path = QDir::toNativeSeparators(m_configManager->configFilePath());
+    m_statusLabel->setText(tr("配置已保存至 %1").arg(path));
+}
+
+void MainWindow::onShowConfigFilePathAction()
+{
+    // 获取配置文件路径
+    QString configPath = QDir::toNativeSeparators(m_configManager->configFilePath());
+    
+    // 显示配置文件路径
+    QMessageBox::information(this, tr("配置文件位置"), 
+                           tr("配置文件保存在:\n%1\n\n点击确定将打开文件所在目录。").arg(configPath));
+    
+    // 打开配置文件所在目录
+    QFileInfo fileInfo(m_configManager->configFilePath());
+    QDesktopServices::openUrl(QUrl::fromLocalFile(fileInfo.absolutePath()));
+}
+
+void MainWindow::initializeWithConfig()
+{
+    // 从配置中初始化界面值
+    updateUiFromConfig();
+}
+
+void MainWindow::updateUiFromConfig()
+{
+    // 更新API凭据输入框
+    m_apiIdEdit->setText(QString::number(m_configManager->apiId()));
+    m_apiHashEdit->setText(m_configManager->apiHash());
+    m_phoneNumberEdit->setText(m_configManager->phoneNumber());
+    
+    // 如果代理对话框存在，更新代理设置
+    if (m_proxyDialog) {
+        m_proxyEnabledCheckBox->setChecked(m_configManager->proxyEnabled());
+        m_proxyHostEdit->setText(m_configManager->proxyHost());
+        m_proxyPortSpinBox->setValue(m_configManager->proxyPort());
+        m_proxyUsernameEdit->setText(m_configManager->proxyUsername());
+        m_proxyPasswordEdit->setText(m_configManager->proxyPassword());
+        
+        // 更新代理设置输入框的启用状态
+        onProxyCheckBoxToggled(m_configManager->proxyEnabled());
+    }
 }
 
 void MainWindow::setupUi()
@@ -68,7 +138,27 @@ void MainWindow::createMenuBar()
     QMenu* settingsMenu = menuBar->addMenu("设置");
     QAction* proxyAction = settingsMenu->addAction("代理设置...");
     
+    // 添加配置文件位置菜单项
+    settingsMenu->addSeparator();
+    QAction* configPathAction = settingsMenu->addAction("配置文件位置...");
+    
     connect(proxyAction, &QAction::triggered, this, &MainWindow::onProxySettingsAction);
+    connect(configPathAction, &QAction::triggered, this, &MainWindow::onShowConfigFilePathAction);
+}
+
+void MainWindow::createStatusBar()
+{
+    // 创建状态栏
+    QStatusBar* statusBar = new QStatusBar(this);
+    setStatusBar(statusBar);
+    
+    // 添加状态标签
+    m_statusLabel = new QLabel(this);
+    statusBar->addWidget(m_statusLabel, 1);
+    
+    // 显示初始配置文件路径
+    QString path = QDir::toNativeSeparators(m_configManager->configFilePath());
+    m_statusLabel->setText(tr("配置文件: %1").arg(path));
 }
 
 void MainWindow::createLoginPage()
@@ -138,15 +228,24 @@ void MainWindow::createMainPage()
     m_mainPage = new QWidget();
     QVBoxLayout* layout = new QVBoxLayout(m_mainPage);
     
-    // 用户名显示
+    // 欢迎标签
     QLabel* welcomeLabel = new QLabel("欢迎使用Telegram客户端!", m_mainPage);
+    welcomeLabel->setStyleSheet("font-size: 16px; font-weight: bold;");
     layout->addWidget(welcomeLabel);
     
-    m_usernameLabel = new QLabel("", m_mainPage);
-    layout->addWidget(m_usernameLabel);
+    // 用户信息组
+    QGroupBox* userInfoGroup = new QGroupBox("账户信息", m_mainPage);
+    QVBoxLayout* userInfoLayout = new QVBoxLayout(userInfoGroup);
     
-    // Get Me 按钮
-    m_getMeButton = new QPushButton("获取账户信息", m_mainPage);
+    m_usernameLabel = new QLabel("", m_mainPage);
+    m_usernameLabel->setTextFormat(Qt::RichText);
+    m_usernameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    userInfoLayout->addWidget(m_usernameLabel);
+    
+    layout->addWidget(userInfoGroup);
+    
+    // 获取账户信息按钮
+    m_getMeButton = new QPushButton("刷新账户信息", m_mainPage);
     layout->addWidget(m_getMeButton);
     
     // 添加到堆叠部件
@@ -203,118 +302,23 @@ void MainWindow::createProxySettingsDialog()
     buttonLayout->addStretch();
     buttonLayout->addWidget(m_applyProxyButton);
     buttonLayout->addWidget(cancelButton);
+    
     mainLayout->addLayout(buttonLayout);
     
-    // 连接信号
+    // 连接信号与槽
     connect(m_proxyEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onProxyCheckBoxToggled);
     connect(m_applyProxyButton, &QPushButton::clicked, this, &MainWindow::onApplyProxyButtonClicked);
     connect(cancelButton, &QPushButton::clicked, m_proxyDialog, &QDialog::reject);
     
-    // 根据当前设置更新UI状态
-    m_proxyEnabledCheckBox->setChecked(m_client->isProxyEnabled());
-    m_proxyHostEdit->setText(m_client->proxyHost());
-    m_proxyPortSpinBox->setValue(m_client->proxyPort() > 0 ? m_client->proxyPort() : 1080);
-    m_proxyUsernameEdit->setText(m_client->proxyUsername());
-    m_proxyPasswordEdit->setText(m_client->proxyPassword());
+    // 从配置管理器初始化值
+    m_proxyEnabledCheckBox->setChecked(m_configManager->proxyEnabled());
+    m_proxyHostEdit->setText(m_configManager->proxyHost());
+    m_proxyPortSpinBox->setValue(m_configManager->proxyPort());
+    m_proxyUsernameEdit->setText(m_configManager->proxyUsername());
+    m_proxyPasswordEdit->setText(m_configManager->proxyPassword());
     
-    // 初始启用/禁用输入框
+    // 初始化设置输入框状态
     onProxyCheckBoxToggled(m_proxyEnabledCheckBox->isChecked());
-}
-
-void MainWindow::loadProxySettings()
-{
-    QSettings settings("TelegramDesktop", "TelegramClient");
-    settings.beginGroup("Proxy");
-    
-    bool enabled = settings.value("Enabled", false).toBool();
-    QString host = settings.value("Host", "").toString();
-    quint16 port = settings.value("Port", 1080).toUInt();
-    QString username = settings.value("Username", "").toString();
-    QString password = settings.value("Password", "").toString();
-    
-    settings.endGroup();
-    
-    // 应用设置到客户端
-    m_client->setProxy(enabled, host, port, username, password);
-}
-
-void MainWindow::saveProxySettings()
-{
-    QSettings settings("TelegramDesktop", "TelegramClient");
-    settings.beginGroup("Proxy");
-    
-    settings.setValue("Enabled", m_client->isProxyEnabled());
-    settings.setValue("Host", m_client->proxyHost());
-    settings.setValue("Port", m_client->proxyPort());
-    settings.setValue("Username", m_client->proxyUsername());
-    settings.setValue("Password", m_client->proxyPassword());
-    
-    settings.endGroup();
-}
-
-void MainWindow::onLoginButtonClicked()
-{
-    QString apiId = m_apiIdEdit->text().trimmed();
-    QString apiHash = m_apiHashEdit->text().trimmed();
-    QString phoneNumber = m_phoneNumberEdit->text().trimmed();
-    
-    // 简单验证
-    if (apiId.isEmpty() || apiHash.isEmpty() || phoneNumber.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请填写所有必填字段");
-        return;
-    }
-    
-    // 请求验证码
-    m_client->setApiCredentials(apiId.toInt(), apiHash);
-    m_client->sendAuthenticationCode(phoneNumber);
-}
-
-void MainWindow::onVerificationCodeEntered()
-{
-    QString code = m_codeEdit->text().trimmed();
-    
-    if (code.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请输入验证码");
-        return;
-    }
-    
-    // 验证码登录
-    m_client->signIn(m_client->phoneNumber(), m_phoneCodeHash, code);
-}
-
-void MainWindow::onGetMeClicked()
-{
-    m_client->getMe();
-}
-
-void MainWindow::onLoginSuccess(const QString& username)
-{
-    m_usernameLabel->setText("用户名: " + username);
-    m_stackedWidget->setCurrentWidget(m_mainPage);
-}
-
-void MainWindow::onLoginFailed(const QString& error)
-{
-    QMessageBox::critical(this, "登录失败", "错误: " + error);
-}
-
-void MainWindow::onCodeRequested(const QString& phoneCodeHash)
-{
-    m_phoneCodeHash = phoneCodeHash;
-    m_stackedWidget->setCurrentWidget(m_verificationPage);
-}
-
-void MainWindow::onAuthorizationError(const QString& error)
-{
-    QMessageBox::critical(this, "授权错误", "错误: " + error);
-    m_stackedWidget->setCurrentWidget(m_loginPage);
-}
-
-void MainWindow::onUserInfoReceived(const QString& username, const QString& firstName, const QString& lastName)
-{
-    QString displayText = QString("用户名: %1\n名字: %2\n姓氏: %3").arg(username, firstName, lastName);
-    m_usernameLabel->setText(displayText);
-    QMessageBox::information(this, "用户信息", displayText);
 }
 
 void MainWindow::onProxySettingsAction()
@@ -322,6 +326,9 @@ void MainWindow::onProxySettingsAction()
     // 创建代理设置对话框（如果尚未创建）
     if (!m_proxyDialog) {
         createProxySettingsDialog();
+    } else {
+        // 更新代理设置对话框的值
+        updateUiFromConfig();
     }
     
     // 显示对话框
@@ -351,14 +358,155 @@ void MainWindow::onApplyProxyButtonClicked()
         return;
     }
     
-    // 应用设置
+    // 应用设置到客户端，客户端会自动保存配置
     m_client->setProxy(enabled, host, port, username, password);
-    
-    // 保存设置
-    saveProxySettings();
     
     // 关闭对话框
     m_proxyDialog->accept();
     
-    QMessageBox::information(this, "代理设置", "代理设置已更新");
+    QMessageBox::information(this, "代理设置", "代理设置已更新并保存到配置文件");
+}
+
+void MainWindow::onLoginButtonClicked()
+{
+    QString apiId = m_apiIdEdit->text().trimmed();
+    QString apiHash = m_apiHashEdit->text().trimmed();
+    QString phoneNumber = m_phoneNumberEdit->text().trimmed();
+    
+    // 简单验证
+    if (apiId.isEmpty() || apiHash.isEmpty() || phoneNumber.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请填写所有必填字段");
+        return;
+    }
+    
+    // 禁用登录按钮并修改文本
+    m_loginButton->setEnabled(false);
+    m_loginButton->setText("发送验证码中...");
+    
+    // 更新状态栏
+    m_statusLabel->setText("正在发送验证码...");
+    
+    // 请求验证码
+    m_client->setApiCredentials(apiId.toInt(), apiHash);
+    m_client->sendAuthenticationCode(phoneNumber);
+    
+    // 在2秒后恢复按钮状态（无论操作成功与否，回调函数都会处理UI更新）
+    QTimer::singleShot(2000, this, [this]() {
+        m_loginButton->setEnabled(true);
+        m_loginButton->setText("登录");
+    });
+}
+
+void MainWindow::onVerificationCodeEntered()
+{
+    QString code = m_codeEdit->text().trimmed();
+    
+    if (code.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请输入验证码");
+        return;
+    }
+    
+    // 禁用验证按钮并修改文本
+    m_verifyButton->setEnabled(false);
+    m_verifyButton->setText("验证中...");
+    
+    // 更新状态栏
+    m_statusLabel->setText("正在验证登录...");
+    
+    // 验证码登录
+    m_client->signIn(m_client->phoneNumber(), m_phoneCodeHash, code);
+    
+    // 在1秒后恢复按钮状态（无论登录成功与否，回调函数都会处理UI更新）
+    QTimer::singleShot(1000, this, [this]() {
+        m_verifyButton->setEnabled(true);
+        m_verifyButton->setText("验证");
+    });
+}
+
+void MainWindow::onGetMeClicked()
+{
+    m_client->getMe();
+}
+
+void MainWindow::onLoginSuccess(const QString& username)
+{
+    // 更新状态栏
+    m_statusLabel->setText("登录成功，正在获取账户信息...");
+    
+    // 显示登录成功消息
+    QMessageBox::information(this, "登录成功", "成功登录到Telegram！\n正在获取您的账户详细信息...");
+    
+    // 设置初始用户名显示
+    m_usernameLabel->setText("<p style='text-align:center;'>正在加载账户信息...</p>");
+    
+    // 切换到主页面
+    m_stackedWidget->setCurrentWidget(m_mainPage);
+    
+    // 自动获取账户详细信息
+    QTimer::singleShot(500, this, [this]() {
+        m_client->getMe();
+    });
+}
+
+void MainWindow::onLoginFailed(const QString& error)
+{
+    // 更新状态栏
+    m_statusLabel->setText("登录失败");
+    
+    // 显示错误消息
+    QMessageBox::critical(this, "登录失败", "错误: " + error);
+}
+
+void MainWindow::onCodeRequested(const QString& phoneCodeHash)
+{
+    // 保存验证码哈希
+    m_phoneCodeHash = phoneCodeHash;
+    
+    // 更新状态栏
+    m_statusLabel->setText("验证码已发送，请输入");
+    
+    // 显示提示消息
+    QMessageBox::information(this, "验证码已发送", "验证码已发送到您的手机，请查看短信或Telegram应用获取验证码。");
+    
+    // 清空验证码输入框并设置焦点
+    m_codeEdit->clear();
+    
+    // 切换到验证页面
+    m_stackedWidget->setCurrentWidget(m_verificationPage);
+    
+    // 设置焦点到验证码输入框
+    QTimer::singleShot(100, this, [this]() {
+        m_codeEdit->setFocus();
+    });
+}
+
+void MainWindow::onAuthorizationError(const QString& error)
+{
+    // 更新状态栏
+    m_statusLabel->setText("授权错误，请重新登录");
+    
+    // 显示错误消息
+    QMessageBox::critical(this, "授权错误", "错误: " + error);
+    
+    // 切换回登录页面
+    m_stackedWidget->setCurrentWidget(m_loginPage);
+}
+
+void MainWindow::onUserInfoReceived(const QString& username, const QString& firstName, const QString& lastName)
+{
+    // 使用HTML格式化显示用户信息
+    QString htmlText = QString(
+        "<table style='margin: 5px;'>"
+        "<tr><td style='font-weight:bold;'>用户名:</td><td>%1</td></tr>"
+        "<tr><td style='font-weight:bold;'>名字:</td><td>%2</td></tr>"
+        "<tr><td style='font-weight:bold;'>姓氏:</td><td>%3</td></tr>"
+        "<tr><td style='font-weight:bold;'>登录状态:</td><td>已登录</td></tr>"
+        "</table>"
+    ).arg(username, firstName, lastName);
+    
+    // 更新用户信息标签
+    m_usernameLabel->setText(htmlText);
+    
+    // 显示成功获取信息的提示
+    m_statusLabel->setText("已成功获取账户信息");
 } 

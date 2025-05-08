@@ -8,6 +8,7 @@
 #include <QJsonObject>
 
 #include "mtproto/mtproto_client.h"
+#include "config_manager.h"
 
 class TelegramClient : public QObject
 {
@@ -17,6 +18,10 @@ public:
     explicit TelegramClient(QObject *parent = nullptr);
     ~TelegramClient();
 
+    // 加载设置
+    void loadSettings();
+    void saveSettings();
+    
     // 设置API凭据
     void setApiCredentials(int apiId, const QString& apiHash);
     
@@ -37,6 +42,9 @@ public:
     void signIn(const QString& phoneNumber, const QString& phoneCodeHash, const QString& code);
     void getMe();
 
+    bool isAuthorized() const;
+    QString phoneCodeHash() const;
+
 signals:
     // 登录状态信号
     void loginSuccess(const QString& username);
@@ -47,9 +55,16 @@ signals:
     // 用户信息信号
     void userInfoReceived(const QString& username, const QString& firstName, const QString& lastName);
 
+private slots:
+    // 设置变化响应槽
+    void onProxyConfigChanged();
+
 private:
     // 核心MTProto客户端
     MTProtoClient* m_mtprotoClient;
+    
+    // 配置管理器
+    ConfigManager* m_configManager;
     
     // API凭据
     int m_apiId;
@@ -60,4 +75,11 @@ private:
     
     // 会话状态
     bool m_isAuthorized;
+    
+    // 应用代理设置
+    void applyProxySettings();
+
+    void checkTlsSupport();
+    void loadApiCredentialsFromConfig();
+    void loadProxySettingsFromConfig();
 }; 
